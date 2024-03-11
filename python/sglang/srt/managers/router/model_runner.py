@@ -107,7 +107,7 @@ class InputMetadata:
             (self.batch_size,), dtype=torch.int32, device="cuda"
         )
 
-        from flashinfer.ops import (
+        from flashinfer import (
             BatchDecodeWithPagedKVCacheWrapper,
             BatchPrefillWithPagedKVCacheWrapper,
         )
