@@ -12,42 +12,35 @@ class ChatTemplateStyle(Enum):
 class ChatTemplate:
     name: str
     default_system_prompt: str
-    role_prefix_and_suffix: Dict[str, Tuple[str]]
+    role_prefix_and_suffix: Dict[str, Tuple[str, str]]
     stop_str: List[str] = ()
     image_token: str = "<image>"
     style: ChatTemplateStyle = ChatTemplateStyle.PLAIN
 
-    def get_prefix_and_suffix(self, role, hist_messages):
-        if self.style == ChatTemplateStyle.PLAIN:
-            return self.role_prefix_and_suffix[role]
-        elif self.style == ChatTemplateStyle.LLAMA2:
-            if len(hist_messages) == 0 and role == "system":
-                return (
-                    self.role_prefix_and_suffix["user"][0]
-                    + self.role_prefix_and_suffix["system"][0],
-                    self.role_prefix_and_suffix["system"][1],
-                )
-            elif (
-                len(hist_messages) == 1
-                and role == "user"
-                and hist_messages[0]["content"] is not None
-            ):
-                return ("", self.role_prefix_and_suffix["user"][1])
-            return self.role_prefix_and_suffix[role]
-        else:
-            raise ValueError(f"Invalid style: {self.style}")
+    def get_prefix_and_suffix(self, role: str, hist_messages: List[Dict]) -> Tuple[str, str]:
+        prefix, suffix = self.role_prefix_and_suffix.get(role, ("", ""))
+        
+        if self.style == ChatTemplateStyle.LLAMA2:
+            if role == "system" and not hist_messages:
+                user_prefix, _ = self.role_prefix_and_suffix.get("user", ("", ""))
+                system_prefix, system_suffix = self.role_prefix_and_suffix.get("system", ("", ""))
+                return (user_prefix + system_prefix, system_suffix)
+            elif role == "user" and len(hist_messages) == 1 and hist_messages[0]["content"] is not None:
+                return ("", suffix)
 
-    def get_prompt(self, messages):
+        return prefix, suffix
+
+    def get_prompt(self, messages: List[Dict]) -> str:
         prompt = ""
-        for i in range(len(messages)):
-            role, content = messages[i]["role"], messages[i]["content"]
+        for i, message in enumerate(messages):
+            role, content = message["role"], message["content"]
             if role == "system" and content is None:
                 content = self.default_system_prompt
                 if content is None:
                     continue
 
             prefix, suffix = self.get_prefix_and_suffix(role, messages[:i])
-            prompt += prefix + content + suffix
+            prompt += f"{prefix}{content}{suffix}"
         return prompt
 
 
@@ -106,15 +99,30 @@ register_chat_template(
         name="chatml",
         default_system_prompt=None,
         role_prefix_and_suffix={
-            "system": ("<|im_start|>system\n", "\n<|im_end|>\n"),
-            "user": ("<|im_start|>user\n", "\n<|im_end|>\n"),
-            "assistant": ("<|im_start|>assistant\n", "\n<|im_end|>\n"),
+            "system": ("<|im_start|>system\n", "<|im_end|>\n"),
+            "user": ("<|im_start|>user\n", "<|im_end|>\n"),
+            "assistant": ("<|im_start|>assistant\n", "<|im_end|>\n"),
         },
         style=ChatTemplateStyle.PLAIN,
         stop_str=("<|im_end|>",),
     )
 )
 
+
+register_chat_template(
+    ChatTemplate(
+        name="chatml-llava",
+        default_system_prompt="Answer the questions.",
+        role_prefix_and_suffix={
+            "system": ("<|im_start|>system\n", "<|im_end|>\n"),
+            "user": ("<|im_start|>user\n", "<|im_end|>\n"),
+            "assistant": ("<|im_start|>assistant\n", "<|im_end|>\n"),
+        },
+        style=ChatTemplateStyle.PLAIN,
+        stop_str=("<|im_end|>",),
+        image_token=" <image>\n",
+    )
+)
 
 register_chat_template(
     ChatTemplate(
@@ -168,7 +176,7 @@ register_chat_template(
 def match_vicuna(model_path: str):
     if "vicuna" in model_path.lower():
         return get_chat_template("vicuna_v1.1")
-    if "llava" in model_path.lower():
+    if "llava-v1.5" in model_path.lower():
         return get_chat_template("vicuna_v1.1")
 
 
@@ -192,6 +200,9 @@ def match_chat_ml(model_path: str):
         return get_chat_template("chatml")
     if "qwen" in model_path and "chat" in model_path:
         return get_chat_template("chatml")
+    if "llava-v1.6-34b" in model_path:
+        return get_chat_template("chatml-llava")
+
 
 @register_chat_template_matching_function
 def match_chat_yi(model_path: str):

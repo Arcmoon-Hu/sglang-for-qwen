@@ -1,8 +1,10 @@
+import logging
+import time
 from typing import Callable, List, Optional, Union
 
 import numpy as np
 from sglang.backend.base_backend import BaseBackend
-from sglang.lang.chat_template import get_chat_template
+from sglang.lang.chat_template import ChatTemplate, get_chat_template_by_model_path
 from sglang.lang.interpreter import StreamExecutor
 from sglang.lang.ir import SglSamplingParams
 
@@ -11,6 +13,9 @@ try:
     import tiktoken
 except ImportError as e:
     openai = tiktoken = e
+
+
+logger = logging.getLogger("openai")
 
 
 def create_logit_bias_int(tokenizer):
@@ -36,23 +41,45 @@ INSTRUCT_MODEL_NAMES = [
 
 
 class OpenAI(BaseBackend):
-    def __init__(self, model_name, *args, **kwargs):
+    def __init__(
+        self,
+        model_name: str,
+        is_chat_model: Optional[bool] = None,
+        chat_template: Optional[ChatTemplate] = None,
+        is_azure: bool = False,
+        *args,
+        **kwargs,
+    ):
         super().__init__()
 
         if isinstance(openai, Exception):
             raise openai
 
-        self.client = openai.OpenAI(*args, **kwargs)
+        if is_azure:
+            self.client = openai.AzureOpenAI(*args, **kwargs)
+        else:
+            self.client = openai.OpenAI(*args, **kwargs)
+
         self.model_name = model_name
-        self.tokenizer = tiktoken.encoding_for_model(model_name)
+        try:
+            self.tokenizer = tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
         self.logit_bias_int = create_logit_bias_int(self.tokenizer)
 
-        if model_name in INSTRUCT_MODEL_NAMES:
-            self.is_chat_model = False
-        else:
-            self.is_chat_model = True
+        self.chat_template = chat_template or get_chat_template_by_model_path(
+            model_name
+        )
 
-        self.chat_template = get_chat_template("default")
+        if is_chat_model is not None:
+            self.is_chat_model = is_chat_model
+        else:
+            if model_name in INSTRUCT_MODEL_NAMES:
+                self.is_chat_model = False
+            else:
+                self.is_chat_model = True
+
+        self.chat_begin_str = self.chat_template.role_prefix_and_suffix["assistant"][0]
 
     def get_chat_template(self):
         return self.chat_template
@@ -64,7 +91,7 @@ class OpenAI(BaseBackend):
     ):
         if sampling_params.dtype is None:
             if self.is_chat_model:
-                if not s.text_.endswith("ASSISTANT:"):
+                if not s.text_.endswith(self.chat_begin_str):
                     raise RuntimeError(
                         "This use case is not supported. "
                         "For OpenAI chat models, sgl.gen must be right after sgl.assistant"
@@ -106,7 +133,7 @@ class OpenAI(BaseBackend):
                 **kwargs,
             )
         else:
-            raise ValueError(f"Unknown dtype: {dtype}")
+            raise ValueError(f"Unknown dtype: {sampling_params.dtype}")
 
         return comp, {}
 
@@ -117,7 +144,11 @@ class OpenAI(BaseBackend):
     ):
         if sampling_params.dtype is None:
             if self.is_chat_model:
-                assert s.text_.endswith("ASSISTANT:")
+                if not s.text_.endswith(self.chat_begin_str):
+                    raise RuntimeError(
+                        "This use case is not supported. "
+                        "For OpenAI chat models, sgl.gen must be right after sgl.assistant"
+                    )
                 prompt = s.messages_
             else:
                 prompt = s.text_
@@ -132,7 +163,7 @@ class OpenAI(BaseBackend):
             )
             return generator
         else:
-            raise ValueError(f"Unknown dtype: {dtype}")
+            raise ValueError(f"Unknown dtype: {sampling_params.dtype}")
 
     def select(
         self,
@@ -199,42 +230,61 @@ class OpenAI(BaseBackend):
         return decision, scores, scores
 
 
-def openai_completion(client, is_chat=None, prompt=None, **kwargs):
-    try:
-        if is_chat:
-            if kwargs["stop"] is None:
-                kwargs.pop("stop")
-            ret = client.chat.completions.create(messages=prompt, **kwargs)
-            comp = ret.choices[0].message.content
-        else:
-            ret = client.completions.create(prompt=prompt, **kwargs)
-            if isinstance(prompt, (list, tuple)):
-                comp = [c.text for c in ret.choices]
+def openai_completion(client, retries=3, is_chat=None, prompt=None, **kwargs):
+    for attempt in range(retries):
+        try:
+            if is_chat:
+                if "stop" in kwargs and kwargs["stop"] is None:
+                    kwargs.pop("stop")
+                ret = client.chat.completions.create(messages=prompt, **kwargs)
+                comp = ret.choices[0].message.content
             else:
-                comp = ret.choices[0].text
-    except openai.OpenAIError as e:
-        print(f"OpenAI Error: {e}")
-        raise e
+                ret = client.completions.create(prompt=prompt, **kwargs)
+                if isinstance(prompt, (list, tuple)):
+                    comp = [c.text for c in ret.choices]
+                else:
+                    comp = ret.choices[0].text
+            break
+        except (openai.APIError, openai.APIConnectionError, openai.RateLimitError) as e:
+            logger.error(f"OpenAI Error: {e}. Waiting 5 seconds...")
+            time.sleep(5)
+            if attempt == retries - 1:
+                raise e
+        except Exception as e:
+            logger.error(f"RuntimeError {e}.")
+            raise e
 
     return comp
 
 
-def openai_completion_stream(client, is_chat=None, prompt=None, **kwargs):
-    try:
-        if is_chat:
-            if kwargs["stop"] is None:
-                kwargs.pop("stop")
-            generator = client.chat.completions.create(
-                messages=prompt, stream=True, **kwargs
-            )
-            for ret in generator:
-                content = ret.choices[0].delta.content
-                yield content or "", {}
-        else:
-            generator = client.completions.create(prompt=prompt, stream=True, **kwargs)
-            for ret in generator:
-                content = ret.choices[0].text
-                yield content or "", {}
-    except openai.OpenAIError as e:
-        print(f"OpenAI Error: {e}")
-        raise e
+def openai_completion_stream(client, retries=3, is_chat=None, prompt=None, **kwargs):
+    for attempt in range(retries):
+        try:
+            if is_chat:
+                if "stop" in kwargs and kwargs["stop"] is None:
+                    kwargs.pop("stop")
+                generator = client.chat.completions.create(
+                    messages=prompt, stream=True, **kwargs
+                )
+                for ret in generator:
+                    try:
+                        content = ret.choices[0].delta.content
+                    except IndexError:
+                        content = None
+                    yield content or "", {}
+            else:
+                generator = client.completions.create(
+                    prompt=prompt, stream=True, **kwargs
+                )
+                for ret in generator:
+                    content = ret.choices[0].text
+                    yield content or "", {}
+            break
+        except (openai.APIError, openai.APIConnectionError, openai.RateLimitError) as e:
+            logger.error(f"OpenAI Error: {e}. Waiting 5 seconds...")
+            time.sleep(5)
+            if attempt == retries - 1:
+                raise e
+        except Exception as e:
+            logger.error(f"RuntimeError {e}.")
+            raise e

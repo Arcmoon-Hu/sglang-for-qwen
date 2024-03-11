@@ -1,4 +1,9 @@
-# SGLang
+<div align="center">
+<img src="assets/logo.png" alt="logo" width="400"></img>
+</div>
+
+--------------------------------------------------------------------------------
+
 | [**Blog**](https://lmsys.org/blog/2024-01-17-sglang/) | [**Paper**](https://arxiv.org/abs/2312.07104) |
 
 SGLang is a structured generation language designed for large language models (LLMs).
@@ -9,8 +14,9 @@ The core features of SGLang include:
 - **A High-Performance Runtime with RadixAttention**: This feature significantly accelerates the execution of complex LLM programs by automatic KV cache reuse across multiple calls. It also supports other common techniques like continuous batching and tensor parallelism.
 
 ## News
-- [2024/01] 🔥 SGLang powers the serving of the offical LLaVA v1.6 release demo ([blog](https://llava-vl.github.io/blog/2024-01-30-llava-1-6/)).
-- [2024/01] SGLang provides up to 5x faster inference with RadixAttention ([blog](https://lmsys.org/blog/2024-01-17-sglang/)).
+- [2024/02] 🔥 SGLang enables **3x faster JSON decoding** with compressed finite state machine ([blog](https://lmsys.org/blog/2024-02-05-compressed-fsm/)).
+- [2024/01] 🔥 SGLang powers the serving of the official **LLaVA v1.6** release demo ([usage](https://github.com/haotian-liu/LLaVA?tab=readme-ov-file#demo)).
+- [2024/01] SGLang provides up to **5x faster inference** with RadixAttention ([blog](https://lmsys.org/blog/2024-01-17-sglang/)).
 
 ## Contents
 - [Install](#install)
@@ -216,7 +222,7 @@ character_regex = (
 
 @sgl.function
 def character_gen(s, name):
-    s += name + " is a character in Harry Potter. Please fill in the following information about him/her.\n"
+    s += name + " is a character in Harry Potter. Please fill in the following information about this character.\n"
     s += sgl.gen("json_output", max_tokens=256, regex=character_regex)
 ```
 
@@ -251,7 +257,7 @@ def text_qa(s, question):
     s += "Q: " + question + "\n"
     s += "A:" + sgl.gen("answer", stop="\n")
 
-states = text_qa.run(
+state = text_qa.run(
     question="What is the capital of France?",
     temperature=0.1,
     stream=True
@@ -367,7 +373,7 @@ python -m sglang.launch_server --model-path meta-llama/Llama-2-7b-chat-hf --port
   - `python3 -m sglang.launch_server --model-path liuhaotian/llava-v1.5-7b --tokenizer-path llava-hf/llava-1.5-7b-hf --chat-template vicuna_v1.1 --port 30000`
 - Yi-VL
   - see [srt_example_yi_vl.py](examples/quick_start/srt_example_yi_vl.py).
-- AWQ quantization
+- AWQ/GPTQ quantization
 
 ## Benchmark And Performance
 
@@ -380,10 +386,7 @@ python -m sglang.launch_server --model-path meta-llama/Llama-2-7b-chat-hf --port
 Learn more [here](docs/benchmark_results.md).
 
 ## Roadmap
-- [ ] Function call APIs
-- [ ] S-LoRA (expect by Feb. 5)
-- [ ] Support more models
-- [ ] Support more hardware backends
+https://github.com/sgl-project/sglang/issues/157
 
 ## Citation And Acknowledgment
 ```

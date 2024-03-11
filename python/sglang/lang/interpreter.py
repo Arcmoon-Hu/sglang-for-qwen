@@ -245,6 +245,9 @@ class StreamExecutor:
             self.variable_event[name].wait()
         return self.variables[name]
 
+    def set_var(self, name, value):
+        self.variables[name] = value
+
     def get_meta_info(self, name):
         if name in self.variable_event:
             self.variable_event[name].wait()
@@ -583,6 +586,10 @@ class StreamExecutor:
         if self.chat_template.stop_str:
             if not clone:
                 clone = self.default_sampling_para.clone()
+            if clone.stop == ():
+                clone.stop = []
+            elif isinstance(clone.stop, str):
+                clone.stop = [clone.stop]
             clone.stop += self.chat_template.stop_str
 
         return clone or self.default_sampling_para
@@ -679,7 +686,7 @@ class ProgramState:
             if var_name is None:
                 yield self.text()
             else:
-                yield self.get_var(name)
+                yield self.get_var(var_name)
 
     async def text_async_iter(
         self, var_name: Optional[str] = None, return_meta_data: bool = False
@@ -717,10 +724,13 @@ class ProgramState:
             if var_name is None:
                 yield self.text()
             else:
-                yield self.get_var(name)
+                yield self.get_var(var_name)
 
     def get_var(self, name):
         return self.stream_executor.get_var(name)
+
+    def set_var(self, name, value):
+        return self.stream_executor.set_var(name, value)
 
     def get_meta_info(self, name):
         return self.stream_executor.get_meta_info(name)
@@ -731,6 +741,9 @@ class ProgramState:
 
     def __getitem__(self, name):
         return self.get_var(name)
+
+    def __setitem__(self, name, value):
+        self.set_var(name, value)
 
     def __del__(self):
         self.stream_executor.end()

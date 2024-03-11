@@ -12,13 +12,17 @@ from sglang.utils import encode_image_base64, find_printable_text, http_request
 
 
 class RuntimeEndpoint(BaseBackend):
-    def __init__(self, base_url):
+    def __init__(self, base_url, auth_token=None, verify=None):
         super().__init__()
         self.support_concate_and_append = True
 
         self.base_url = base_url
+        self.auth_token = auth_token
+        self.verify = verify
 
-        res = http_request(self.base_url + "/get_model_info")
+        res = http_request(
+            self.base_url + "/get_model_info", auth_token=self.auth_token, verify=self.verify
+        )
         assert res.status_code == 200
         self.model_info = res.json()
 
@@ -36,6 +40,8 @@ class RuntimeEndpoint(BaseBackend):
         res = http_request(
             self.base_url + "/generate",
             json={"text": prefix_str, "sampling_params": {"max_new_tokens": 0}},
+            auth_token=self.auth_token,
+            verify=self.verify
         )
         assert res.status_code == 200
 
@@ -43,13 +49,17 @@ class RuntimeEndpoint(BaseBackend):
         res = http_request(
             self.base_url + "/generate",
             json={"text": s.text_, "sampling_params": {"max_new_tokens": 0}},
+            auth_token=self.auth_token,
+            verify=self.verify
         )
         assert res.status_code == 200
 
     def fill_image(self, s: StreamExecutor):
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         self._add_images(s, data)
-        res = http_request(self.base_url + "/generate", json=data)
+        res = http_request(
+            self.base_url + "/generate", json=data, auth_token=self.auth_token, verify=self.verify
+        )
         assert res.status_code == 200
 
     def generate(
@@ -79,7 +89,9 @@ class RuntimeEndpoint(BaseBackend):
 
         self._add_images(s, data)
 
-        res = http_request(self.base_url + "/generate", json=data)
+        res = http_request(
+            self.base_url + "/generate", json=data, auth_token=self.auth_token, verify=self.verify
+        )
         obj = res.json()
         comp = obj["text"]
         return comp, obj["meta_info"]
@@ -112,7 +124,13 @@ class RuntimeEndpoint(BaseBackend):
         data["stream"] = True
         self._add_images(s, data)
 
-        response = http_request(self.base_url + "/generate", json=data, stream=True)
+        response = http_request(
+            self.base_url + "/generate",
+            json=data,
+            stream=True,
+            auth_token=self.auth_token,
+            verify=self.verify
+        )
         pos = 0
 
         incomplete_text = ""
@@ -142,7 +160,9 @@ class RuntimeEndpoint(BaseBackend):
         # Cache common prefix
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         self._add_images(s, data)
-        res = http_request(self.base_url + "/generate", json=data)
+        res = http_request(
+            self.base_url + "/generate", json=data, auth_token=self.auth_token, verify=self.verify
+        )
         assert res.status_code == 200
         prompt_len = res.json()["meta_info"]["prompt_tokens"]
 
@@ -154,7 +174,9 @@ class RuntimeEndpoint(BaseBackend):
             "logprob_start_len": max(prompt_len - 2, 0),
         }
         self._add_images(s, data)
-        res = http_request(self.base_url + "/generate", json=data)
+        res = http_request(
+            self.base_url + "/generate", json=data, auth_token=self.auth_token, verify=self.verify
+        )
         assert res.status_code == 200
         obj = res.json()
         normalized_prompt_logprob = [
@@ -169,6 +191,8 @@ class RuntimeEndpoint(BaseBackend):
         res = http_request(
             self.base_url + "/concate_and_append_request",
             json={"src_rids": src_rids, "dst_rid": dst_rid},
+            auth_token=self.auth_token,
+            verify=self.verify
         )
         assert res.status_code == 200
 
