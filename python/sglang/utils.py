@@ -22,7 +22,7 @@ def get_available_gpu_memory(gpu_id, distributed=True):
 
     if torch.cuda.current_device() != gpu_id:
         print(
-            f"WARN: current device is not {gpu_id}, but {torch.cuda.current_device()}, ",
+            f"WARNING: current device is not {gpu_id}, but {torch.cuda.current_device()}, ",
             "which may cause useless memory allocation for torch CUDA context.",
         )
 
@@ -88,18 +88,26 @@ class HttpResponse:
         return self.resp.status
 
 
-def http_request(url, json=None, stream=False):
+def http_request(url, json=None, stream=False, auth_token=None, verify=None):
     """A faster version of requests.post with low-level urllib API."""
     if stream:
-        return requests.post(url, json=json, stream=True)
+        if auth_token is None:
+            return requests.post(url, json=json, stream=True, verify=verify)
+        headers = {
+            "Content-Type": "application/json",
+            "Authentication": f"Bearer {auth_token}",
+        }
+        return requests.post(url, json=json, stream=True, headers=headers, verify=verify)
     else:
         req = urllib.request.Request(url)
         req.add_header("Content-Type", "application/json; charset=utf-8")
+        if auth_token is not None:
+            req.add_header("Authentication", f"Bearer {auth_token}")
         if json is None:
             data = None
         else:
             data = bytes(dumps(json), encoding="utf-8")
-        resp = urllib.request.urlopen(req, data=data)
+        resp = urllib.request.urlopen(req, data=data, cafile=verify)
         return HttpResponse(resp)
 
 

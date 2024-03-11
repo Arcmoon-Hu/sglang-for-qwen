@@ -97,14 +97,16 @@ class MixtralMoE(nn.Module):
 
         self.experts = nn.ModuleList(
             [
-                MixtralMLP(
-                    self.num_total_experts,
-                    config.hidden_size,
-                    config.intermediate_size,
-                    linear_method=linear_method,
+                (
+                    MixtralMLP(
+                        self.num_total_experts,
+                        config.hidden_size,
+                        config.intermediate_size,
+                        linear_method=linear_method,
+                    )
+                    if idx in self.expert_indicies
+                    else None
                 )
-                if idx in self.expert_indicies
-                else None
                 for idx in range(self.num_total_experts)
             ]
         )
@@ -294,12 +296,12 @@ class MixtralModel(nn.Module):
         input_ids: torch.Tensor,
         positions: torch.Tensor,
         input_metadata: InputMetadata,
-        skip_embed: bool = False,
+        input_embeds: torch.Tensor = None,
     ) -> torch.Tensor:
-        if not skip_embed:
+        if input_embeds is None:
             hidden_states = self.embed_tokens(input_ids)
         else:
-            hidden_states = input_ids
+            hidden_states = input_embeds
         residual = None
         for i in range(len(self.layers)):
             layer = self.layers[i]
@@ -328,9 +330,9 @@ class MixtralForCausalLM(nn.Module):
         input_ids: torch.Tensor,
         positions: torch.Tensor,
         input_metadata: InputMetadata,
-        skip_embed: bool = False,
+        input_embeds: torch.Tensor = None,
     ) -> torch.Tensor:
-        hidden_states = self.model(input_ids, positions, input_metadata, skip_embed)
+        hidden_states = self.model(input_ids, positions, input_metadata, input_embeds)
         return self.logits_processor(
             input_ids, hidden_states, self.lm_head.weight, input_metadata
         )

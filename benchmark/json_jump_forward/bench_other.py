@@ -64,7 +64,7 @@ def character_maker(lm, name):
     regex_str_no_quote = r"[\w\d\s]+"
     regex_float = r"[0-9]+\.[0-9]+"
     lm += f"""\
-    {name} is a character in Harry Potter. Please fill in the following information about him/her.
+    {name} is a character in Harry Potter. Please fill in the following information about this character.
     {{
         "name": "{guidance.gen("name", max_tokens=16, regex=regex_str_no_quote)}",
         "house": "{guidance.select(options=['Gryffindor', 'Slytherin', 'Ravenclaw', 'Hufflepuff'], name='house')}",
@@ -219,7 +219,7 @@ def main(args):
 
     with open(args.result_file, "a") as fout:
         value = {
-            "task": "json_fast_forward",
+            "task": "json_jump_forward",
             "backend": args.backend,
             "latency": round(latency, 3),
             "num_jsons": args.num_jsons,

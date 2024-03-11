@@ -16,6 +16,7 @@ class ServerArgs:
     trust_remote_code: bool = True
     mem_fraction_static: Optional[float] = None
     max_prefill_num_token: Optional[int] = None
+    context_length: Optional[int] = None
     tp_size: int = 1
     model_mode: List[str] = ()
     schedule_heuristic: str = "lpm"
@@ -25,7 +26,8 @@ class ServerArgs:
     disable_log_stats: bool = False
     log_stats_interval: int = 10
     log_level: str = "info"
-    no_regex_fast_forward: bool = False
+    disable_regex_jump_forward: bool = False
+    disable_disk_cache: bool = False
 
     def __post_init__(self):
         if self.tokenizer_path is None:
@@ -114,7 +116,13 @@ class ServerArgs:
             "--max-prefill-num-token",
             type=int,
             default=ServerArgs.max_prefill_num_token,
-            help="The maximum number of tokens in a prefill batch. The real bound will be the maximum of this value and the model's maximum context length."
+            help="The maximum number of tokens in a prefill batch. The real bound will be the maximum of this value and the model's maximum context length.",
+        )
+        parser.add_argument(
+            "--context-length",
+            type=int,
+            default=ServerArgs.context_length,
+            help="The model's maximum context length. Use this to reduce the context length to save memory. Defaults to None (will use the value from the model's config.json instead).",
         )
         parser.add_argument(
             "--tp-size",
@@ -172,9 +180,14 @@ class ServerArgs:
             help="Log stats interval in second.",
         )
         parser.add_argument(
-            "--no-regex-fast-forward",
+            "--disable-regex-jump-forward",
             action="store_true",
-            help="Disable regex fast forward",
+            help="Disable regex jump-forward",
+        )
+        parser.add_argument(
+            "--disable-disk-cache",
+            action="store_true",
+            help="Disable disk cache to avoid possible crashes related to file system or high concurrency.",
         )
 
     @classmethod

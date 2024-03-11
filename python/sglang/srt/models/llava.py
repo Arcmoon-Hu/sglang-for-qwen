@@ -1,4 +1,5 @@
 """Inference-only LLaVa model compatible with HuggingFace weights."""
+
 from typing import List, Optional
 
 import numpy as np
@@ -229,11 +230,11 @@ class LlavaLlamaForCausalLM(nn.Module):
                     pt += 1
 
             return self.language_model(
-                input_embeds, positions, input_metadata, skip_embed=True
+                input_ids, positions, input_metadata, input_embeds=input_embeds
             )
         elif input_metadata.forward_mode == ForwardMode.DECODE:
             return self.language_model(
-                input_ids, positions, input_metadata, skip_embed=False
+                input_ids, positions, input_metadata
             )
 
     def load_weights(
@@ -269,7 +270,6 @@ class LlavaLlamaForCausalLM(nn.Module):
             raise ValueError(f"Unexpected select feature: {self.select_feature}")
 
         # load mm_projector
-        # TODO: support TP?
         projector_weights = {
             "model.mm_projector.0": "multi_modal_projector.linear_1",
             "model.mm_projector.2": "multi_modal_projector.linear_2",

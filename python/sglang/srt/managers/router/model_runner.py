@@ -20,6 +20,8 @@ import sglang
 QUANTIONCONFIG_MAPPING = {'awq': AWQConfig, 
                           'gptq': GPTQConfig}
 
+QUANTIONCONFIG_MAPPING = {"awq": AWQConfig, "gptq": GPTQConfig}
+
 logger = logging.getLogger("model_runner")
 
 
@@ -90,6 +92,11 @@ class InputMetadata:
     decode_wrapper = None
 
     def init_flashinfer_args(self, tp_size):
+        from flashinfer import (
+            BatchDecodeWithPagedKVCacheWrapper,
+            BatchPrefillWithPagedKVCacheWrapper,
+        )
+
         self.kv_indptr = torch.zeros(
             (self.batch_size + 1,), dtype=torch.int32, device="cuda"
         )
@@ -107,11 +114,10 @@ class InputMetadata:
             (self.batch_size,), dtype=torch.int32, device="cuda"
         )
 
-        from flashinfer.ops import (
+        from flashinfer import (
             BatchDecodeWithPagedKVCacheWrapper,
             BatchPrefillWithPagedKVCacheWrapper,
         )
-
         if (
             self.forward_mode == ForwardMode.PREFILL
             or self.forward_mode == ForwardMode.EXTEND
@@ -120,19 +126,25 @@ class InputMetadata:
                 (self.batch_size + 1,), dtype=torch.int32, device="cuda"
             )
             self.qo_indptr[1:] = torch.cumsum(self.extend_seq_lens, dim=0)
-            self.prefill_wrapper = BatchPrefillWithPagedKVCacheWrapper()
+            self.prefill_wrapper = BatchPrefillWithPagedKVCacheWrapper(
+                workspace_buffer, "NHD"
+            )
             self.prefill_wrapper.begin_forward(
                 self.qo_indptr,
-                self.batch_size,
+                self.kv_indptr,
+                self.kv_indices,
+                self.kv_last_page_len,
                 self.model_runner.model_config.num_attention_heads // tp_size,
                 self.model_runner.model_config.num_key_value_heads // tp_size,
             )
         else:
-            self.decode_wrapper = BatchDecodeWithPagedKVCacheWrapper()
+            self.decode_wrapper = BatchDecodeWithPagedKVCacheWrapper(
+                workspace_buffer, "NHD"
+            )
             self.decode_wrapper.begin_forward(
                 self.kv_indptr,
+                self.kv_indices,
                 self.kv_last_page_len,
-                self.batch_size,
                 self.model_runner.model_config.num_attention_heads // tp_size,
                 self.model_runner.model_config.num_key_value_heads // tp_size,
                 self.model_runner.model_config.head_dim,
@@ -397,6 +409,7 @@ class ModelRunner:
         out_cache_loc,
         out_cache_cont_start,
         out_cache_cont_end,
+        return_logprob,
     ):
         input_metadata = InputMetadata.create(
             self,
@@ -409,10 +422,9 @@ class ModelRunner:
             out_cache_loc=out_cache_loc,
             out_cache_cont_start=out_cache_cont_start,
             out_cache_cont_end=out_cache_cont_end,
+            return_logprob=return_logprob,
         )
-        return self.model.forward(input_ids, input_metadata.positions, input_metadata)[
-            0
-        ]
+        return self.model.forward(input_ids, input_metadata.positions, input_metadata)
 
     @torch.inference_mode()
     def forward_extend_multi_modal(
@@ -460,8 +472,8 @@ class ModelRunner:
                 "prefix_lens": batch.prefix_lens,
                 "position_ids_offsets": batch.position_ids_offsets,
                 "out_cache_loc": batch.out_cache_loc,
+                "return_logprob": return_logprob,
             }
-            kwargs["return_logprob"] = return_logprob
             return self.forward_extend_multi_modal(**kwargs)
         else:
             kwargs = {
@@ -471,6 +483,7 @@ class ModelRunner:
                 "prefix_lens": batch.prefix_lens,
                 "position_ids_offsets": batch.position_ids_offsets,
                 "out_cache_loc": batch.out_cache_loc,
+                "return_logprob": return_logprob,
             }
 
         if forward_mode == ForwardMode.DECODE:
@@ -478,10 +491,8 @@ class ModelRunner:
             kwargs["out_cache_cont_end"] = batch.out_cache_cont_end
             return self.forward_decode(**kwargs)
         elif forward_mode == ForwardMode.EXTEND:
-            kwargs["return_logprob"] = return_logprob
             return self.forward_extend(**kwargs)
         elif forward_mode == ForwardMode.PREFILL:
-            kwargs["return_logprob"] = return_logprob
             return self.forward_prefill(**kwargs)
         else:
             raise ValueError(f"Invaid forward mode: {forward_mode}")

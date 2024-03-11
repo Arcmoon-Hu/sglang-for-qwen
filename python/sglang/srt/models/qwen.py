@@ -5,6 +5,7 @@ from sglang.srt.layers.logits_processor import LogitsProcessor
 from sglang.srt.layers.radix_attention import RadixAttention
 from sglang.srt.managers.router.model_runner import InputMetadata
 from torch import nn
+from transformers import PretrainedConfig
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (
@@ -25,7 +26,6 @@ from vllm.model_executor.weight_utils import (
     default_weight_loader,
     hf_model_weights_iterator,
 )
-from vllm.transformers_utils.configs.qwen import QWenConfig
 
 
 class QWenMLP(nn.Module):
@@ -42,14 +42,14 @@ class QWenMLP(nn.Module):
             2 * [intermediate_size],
             bias=False,
             gather_output=False,
-            linear_method=linear_method
+            linear_method=linear_method,
         )
         self.c_proj = RowParallelLinear(
             intermediate_size,
             hidden_size,
             bias=False,
             input_is_parallel=True,
-            linear_method=linear_method
+            linear_method=linear_method,
         )
         if hidden_act != "silu":
             raise ValueError(
@@ -74,7 +74,7 @@ class QWenAttention(nn.Module):
         layer_id: int = 0,
         rope_theta: float = 10000,
         rope_scaling: Optional[Dict[str, Any]] = None,
-        linear_method: Optional[LinearMethodBase] = None
+        linear_method: Optional[LinearMethodBase] = None,
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -86,18 +86,18 @@ class QWenAttention(nn.Module):
 
         # pylint: disable=invalid-name
         self.c_attn = QKVParallelLinear(
-            hidden_size, 
-            self.head_dim, 
-            self.total_num_heads, 
-            bias=True, 
-            linear_method=linear_method
+            hidden_size,
+            self.head_dim,
+            self.total_num_heads,
+            bias=True,
+            linear_method=linear_method,
         )
         self.c_proj = RowParallelLinear(
             self.total_num_heads * self.head_dim,
             hidden_size,
             bias=False,
             input_is_parallel=True,
-            linear_method=linear_method
+            linear_method=linear_method,
         )
         self.rotary_emb = get_rope(
             self.head_dim,
@@ -130,7 +130,7 @@ class QWenAttention(nn.Module):
 
 
 class QWenBlock(nn.Module):
-    def __init__(self, config: QWenConfig, layer_id, linear_method=None):
+    def __init__(self, config: PretrainedConfig, layer_id, linear_method=None):
         super().__init__()
         self.ln_1 = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
 
@@ -175,7 +175,7 @@ class QWenBlock(nn.Module):
 
 
 class QWenModel(nn.Module):
-    def __init__(self, config: QWenConfig, linear_method=None):
+    def __init__(self, config: PretrainedConfig, linear_method=None):
         super().__init__()
         self.config = config
         self.vocab_size = config.vocab_size
@@ -209,7 +209,7 @@ class QWenModel(nn.Module):
 
 
 class QWenLMHeadModel(nn.Module):
-    def __init__(self, config: QWenConfig, linear_method=None):
+    def __init__(self, config: PretrainedConfig, linear_method=None):
         super().__init__()
         self.config = config
         self.transformer = QWenModel(config, linear_method=linear_method)
